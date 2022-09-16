@@ -61,6 +61,52 @@ Sp_Manual_Vec <- function(data, CoefEst, CoefEst_sev, knots, knots_sev,
 
   return(data)
 }
+SS_Cox <- function(test_alpha,
+                   test_beta,
+                   trt_prop,
+                   trt_effect,
+                   event_prop) {
+  var_x <- trt_prop * (1 - trt_prop)
+
+  ss_est <- (qnorm(p = 1 - test_alpha / 2) + qnorm(p = 1 - test_beta)) ^ 2
+  ss_est <- ss_est / (var_x * event_prop * trt_effect ^ 2)
+
+  return(ss_est)
+}
+conditional_moments <- function(x,  # threshold
+                                mu, # mean of predicted rates
+                                v,  # var of predicted rates
+                                k,  # conditional observed count overdispersion (OD)
+                                n_sim = 10 ^ 5) {
+  f_scale <- v / mu
+  f_shape <- mu / f_scale
+  pi <- rgamma(n_sim, shape = f_shape, scale = f_scale)
+  pi <- pi[which(pi > x)]
+  g_scale <- k
+  g_shape <- pi / g_scale
+  lambda <- rgamma(n = length(pi), shape = g_shape, scale = g_scale)
+  N <- rpois(n = length(lambda), lambda = lambda)
+  c(mean(N), var(N))
+}
+estimate_parameters <- function(E_N,       # observed rate mean
+                                V_N,       # observed rate var
+                                k = 1.33)  # conditional observed rate OD
+{
+  mu <- E_N
+  v <- V_N - mu * (1 + k)
+  c(mu, v)
+}
+CondMeanVar <- function(E_N, V_N, k, threshold) {
+  paramsEst <- estimate_parameters(E_N = E_N, V_N = V_N, k = k)
+
+  condMoments <- conditional_moments(x = threshold,
+                                     mu = paramsEst[1],
+                                     v = paramsEst[2],
+                                     k = k,
+                                     n_sim = 10 ^ 5)
+
+  return(condMoments)
+}
 
 
 # Predicts COPD exacerbation rate by severity level
@@ -828,3 +874,55 @@ predictCountProb <- function (patientResults, n = 10, shortened = TRUE){
 }
 
 
+
+
+
+
+# sample_enrichment <- function(test_alpha = 0.05,
+#                               test_beta = 0.2,
+#                               trt_prop = 0.5,
+#                               trt_effect = log(1 / 0.85),
+#                               event_prop,
+#                               n = NULL,
+#                               sample_size_range = FALSE,
+#                               thresholds = NULL,
+#                               count_mean = NULL,
+#                               count_var = NULL,
+#                               count_overdispersion = NULL) {
+#
+#   if (sample_size_range) {
+#     if (is.null(thresholds)) thresholds <- qgamma(p = seq(0, 1, 0.1), shape = , scale = )
+#     n_threshold <- length(threshold_list)
+#
+#     ss_est <- data.frame(thresholds = thresholds,
+#                          ss = rep(NA, n_threshold))
+#
+#
+#     for (i in 1 : length(thresholds)) {
+#
+#       rr <- thresholds[i]
+#       # Emp_FProp <- mean((data_bs$obsExac[data_bs$pred_temp >= rr] > 0))
+#
+#       Emp_FProp <- mean((data_bs$obsExac[data_bs$pred_temp >= rr] > 0))
+#       Est_FProp <- mean(1 - dpois(x = 0, lambda = predict(glmFit_v, type = "response")))
+#
+#       ss_est$ss[i] <-
+#         SS_Cox(test_alpha = test_alpha,
+#                test_beta = test_beta,
+#                trt_prop = trt_prop,
+#                trt_effect = trt_effect,
+#                event_prop = Est_FProp)
+#     }
+#   }
+#   else {
+#     ss_est <-
+#       SS_Cox(test_alpha = test_alpha,
+#              test_beta = test_beta,
+#              trt_prop = trt_prop,
+#              trt_effect = trt_effect,
+#              event_prop = event_prop)
+#   }
+#
+#
+# }
+#
