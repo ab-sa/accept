@@ -15,7 +15,9 @@ Imports:
     stats,
     dplyr,
     reldist,
-    splines
+    splines,
+    ggplot2,
+    scales
 Suggests:
     plotly
 RoxygenNote: 7.2.1

@@ -73,40 +73,55 @@ SS_Cox <- function(test_alpha,
 
   return(ss_est)
 }
-conditional_moments <- function(x,  # threshold
-                                mu, # mean of predicted rates
-                                v,  # var of predicted rates
-                                k,  # conditional observed count overdispersion (OD)
-                                n_sim = 10 ^ 5) {
-  f_scale <- v / mu
-  f_shape <- mu / f_scale
-  pi <- rgamma(n_sim, shape = f_shape, scale = f_scale)
-  pi <- pi[which(pi > x)]
-  g_scale <- k
-  g_shape <- pi / g_scale
-  lambda <- rgamma(n = length(pi), shape = g_shape, scale = g_scale)
-  N <- rpois(n = length(lambda), lambda = lambda)
-  c(mean(N), var(N))
-}
-estimate_parameters <- function(E_N,       # observed rate mean
-                                V_N,       # observed rate var
-                                k = 1.33)  # conditional observed rate OD
-{
-  mu <- E_N
-  v <- V_N - mu * (1 + k)
-  c(mu, v)
-}
-CondMeanVar <- function(E_N, V_N, k, threshold) {
-  paramsEst <- estimate_parameters(E_N = E_N, V_N = V_N, k = k)
 
-  condMoments <- conditional_moments(x = threshold,
-                                     mu = paramsEst[1],
-                                     v = paramsEst[2],
-                                     k = k,
-                                     n_sim = 10 ^ 5)
-
-  return(condMoments)
+optimal_threshold <- function(rr,
+                              test_alpha, test_beta,
+                              trt_prop, trt_effect, rates_adj, n) {
+  rates_filter <- rates_adj[rates_adj >= rr]
+  rates_BS <- rates_filter[sample(c(1 : length(rates_filter)), size = 10000, replace = TRUE)]
+  Est_FProp <- mean(1 - dpois(x = 0, lambda = rates_BS))
+  ss_est <- SS_Cox(test_alpha = test_alpha,
+                   test_beta = test_beta,
+                   trt_prop = trt_prop,
+                   trt_effect = trt_effect,
+                   event_prop = Est_FProp)
+  return(((n - ss_est) / n) ^ 2)
 }
+
+# conditional_moments <- function(x,  # threshold
+#                                 mu, # mean of predicted rates
+#                                 v,  # var of predicted rates
+#                                 k,  # conditional observed count overdispersion (OD)
+#                                 n_sim = 10 ^ 5) {
+#   f_scale <- v / mu
+#   f_shape <- mu / f_scale
+#   pi <- rgamma(n_sim, shape = f_shape, scale = f_scale)
+#   pi <- pi[which(pi > x)]
+#   g_scale <- k
+#   g_shape <- pi / g_scale
+#   lambda <- rgamma(n = length(pi), shape = g_shape, scale = g_scale)
+#   N <- rpois(n = length(lambda), lambda = lambda)
+#   c(mean(N), var(N))
+# }
+# estimate_parameters <- function(E_N,       # observed rate mean
+#                                 V_N,       # observed rate var
+#                                 k = 1.33)  # conditional observed rate OD
+# {
+#   mu <- E_N
+#   v <- V_N - mu * (1 + k)
+#   c(mu, v)
+# }
+# CondMeanVar <- function(E_N, V_N, k, threshold) {
+#   paramsEst <- estimate_parameters(E_N = E_N, V_N = V_N, k = k)
+#
+#   condMoments <- conditional_moments(x = threshold,
+#                                      mu = paramsEst[1],
+#                                      v = paramsEst[2],
+#                                      k = k,
+#                                      n_sim = 10 ^ 5)
+#
+#   return(condMoments)
+# }
 
 
 # Predicts COPD exacerbation rate by severity level
@@ -878,51 +893,124 @@ predictCountProb <- function (patientResults, n = 10, shortened = TRUE){
 
 
 
-# sample_enrichment <- function(test_alpha = 0.05,
-#                               test_beta = 0.2,
-#                               trt_prop = 0.5,
-#                               trt_effect = log(1 / 0.85),
-#                               event_prop,
-#                               n = NULL,
-#                               sample_size_range = FALSE,
-#                               thresholds = NULL,
-#                               count_mean = NULL,
-#                               count_var = NULL,
-#                               count_overdispersion = NULL) {
-#
-#   if (sample_size_range) {
-#     if (is.null(thresholds)) thresholds <- qgamma(p = seq(0, 1, 0.1), shape = , scale = )
-#     n_threshold <- length(threshold_list)
-#
-#     ss_est <- data.frame(thresholds = thresholds,
-#                          ss = rep(NA, n_threshold))
-#
-#
-#     for (i in 1 : length(thresholds)) {
-#
-#       rr <- thresholds[i]
-#       # Emp_FProp <- mean((data_bs$obsExac[data_bs$pred_temp >= rr] > 0))
-#
-#       Emp_FProp <- mean((data_bs$obsExac[data_bs$pred_temp >= rr] > 0))
-#       Est_FProp <- mean(1 - dpois(x = 0, lambda = predict(glmFit_v, type = "response")))
-#
-#       ss_est$ss[i] <-
-#         SS_Cox(test_alpha = test_alpha,
-#                test_beta = test_beta,
-#                trt_prop = trt_prop,
-#                trt_effect = trt_effect,
-#                event_prop = Est_FProp)
-#     }
-#   }
-#   else {
-#     ss_est <-
-#       SS_Cox(test_alpha = test_alpha,
-#              test_beta = test_beta,
-#              trt_prop = trt_prop,
-#              trt_effect = trt_effect,
-#              event_prop = event_prop)
-#   }
-#
-#
-# }
-#
+#' sample enrichment function to find optimal sample size or threshold relative risk for patient recruitment
+#'
+#' @param test_alpha type I error of the test (default = 0.05)
+#' @param test_beta type II error of test (default = 0.2)
+#' @param trt_prop proportion of patients in treatment arm (default = 0.5)
+#' @param trt_effect treatment effect to be aimed from the data analysis
+#' @param event_rate event rate of the outcome in the target population
+#' @param n sample size  (default = NULL)
+#' @param sample_size_range logical, whether a range of sample size being returned corresponding to the deciles of the predicted risk
+#' @param thresholds threshold values at which sample size needs to be estimated
+#' @param plot plot estimated sample size versus relative risk thresholds and recruitment efficiency
+#'
+#' @return either a relative risk threshold value corresponds to a given sample size or return a range of sample sizes corresponding to different threshold values of relative risk
+#' @export
+#'
+#' @importFrom stats qnorm optim ecdf
+#' @importFrom ggplot2 ggplot aes geom_point geom_line labs theme_classic geom_smooth scale_x_continuous
+#' @importFrom scales percent
+#'
+#' @examples
+#' ## finding optimal relative risk threshold value corresponding to a given sample size
+#' sample_enrichment(event_rate = 0.4, n = 400)
+#' ## estimating a range of sample sizes corresponding to different values of relative risk
+#' sample_enrichment(event_rate = 0.4, sample_size_range = TRUE)
+sample_enrichment <- function(test_alpha = 0.05,
+                              test_beta = 0.2,
+                              trt_prop = 0.5,
+                              trt_effect = log(1 / 0.85),
+                              event_rate,
+                              n = NULL,
+                              sample_size_range = FALSE,
+                              thresholds = NULL,
+                              plot = FALSE) {
+
+  ## Scenario 1: no given n by user; a list of n along with
+  ### their corresponding thresholds will be returned. User can then choose
+  ### the values that fit their need best.
+  ## Scenario 2: a given n is provided by user. Given that, its corresponding
+  ### threshold will be returned.
+
+  if (sample_size_range | ! is.null(thresholds)) {  ## Scenario 1
+
+    ## adjust rate based on the event rate at target population
+    rates_adj <- rates_internal * event_rate / mean(rates_internal)
+
+    if (is.null(thresholds)) {
+      probs_temp <- seq(0.1, 1, 0.1)
+      thresholds <- quantile(rates_adj, prob = probs_temp)
+    }
+    else {
+      probs_temp <- ecdf(thresholds)(thresholds)
+    }
+    n_threshold <- length(thresholds)
+
+    ss_est <- data.frame(thresholds = thresholds,
+                         percentage = probs_temp,
+                         ss = rep(NA, n_threshold))
+
+
+    for (i in 1 : n_threshold) {
+
+      rr <- thresholds[i]
+      # Emp_FProp <- mean((data_bs$obsExac[data_bs$pred_temp >= rr] > 0))
+      # glmFit_v <- glm(obsExac ~ log(pred_temp), data = data_bs[data_bs$pred_temp >= rr , ],
+      #                 family = poisson(link = "log"),
+      #                 offset = log(YIS))
+
+      rates_filter <- rates_adj[rates_adj >= rr]
+      rates_BS <- rates_filter[sample(c(1 : length(rates_filter)), size = 10000, replace = TRUE)]
+      Est_FProp <- mean(1 - dpois(x = 0, lambda = rates_BS))
+
+      ss_est$ss[i] <-
+        SS_Cox(test_alpha = test_alpha,
+               test_beta = test_beta,
+               trt_prop = trt_prop,
+               trt_effect = trt_effect,
+               event_prop = Est_FProp)
+    }
+
+    if (plot) {
+      ss_thresholds_plot <-
+        ggplot(data = ss_est, aes(x = .data$thresholds, y = .data$ss)) +
+        geom_point(size = 3) +
+        geom_line() +
+        labs(y = "Sample size", x = "Relative risk thresholds") +
+        theme_classic()
+      ss_recruitment_plot <-
+        ggplot(data = ss_est, aes(x = .data$percentage, y = .data$ss)) +
+        geom_point(size = 3) +
+        geom_smooth(size = 1, se = FALSE) +
+        scale_x_continuous(labels = scales::percent) +
+        labs(y = "Sample size", x = "Recruitment efficiency") +
+        theme_classic()
+
+      return(list(sample_size_estimates = ss_est,
+                  ss_thresholds_plot = ss_thresholds_plot,
+                  ss_recruitment_plot = ss_recruitment_plot))
+    }
+
+
+    return(sample_size_estimates = ss_est)
+  }
+  else {   ## Scenario 2
+
+    rates_adj <- rates_internal * event_rate / mean(rates_internal)
+
+    n_optim_obj <- try(optim(par = 1, fn = optimal_threshold,
+                             lower = 0, method = "L-BFGS-B",
+                             upper = quantile(rates_adj, probs = 0.9),
+                             test_alpha = test_alpha,
+                             test_beta = test_beta,
+                             trt_prop = trt_prop,
+                             trt_effect = trt_effect,
+                             rates_adj = rates_adj,
+                             n = n),
+                       silent = TRUE)
+    return(optimal_threshold = n_optim_obj$par)
+  }
+
+}
+
